@@ -1,10 +1,14 @@
 <!DOCTYPE html>
-< lang="ar" dir="rtl">
+<html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>معركة الأنمي - أونلاين</title>
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-database-compat.js"></script>
+
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   
@@ -126,9 +130,8 @@
     animation: spin 1s linear infinite;
     margin: 20px;
   }
-  @keyframes spin { 100% { transform: rotate(360deg); } }
 
-  /* ===== شاشة اللعبة ===== */
+    /* ===== شاشة اللعبة ===== */
   #game {
     padding: 0;
     justify-content: flex-start;
@@ -260,7 +263,7 @@
   }
 </style>
 </head>
-<>
+<body>
 
 <!-- ===== شاشة البداية ===== -->
 <div id="menu" class="screen active">
@@ -308,7 +311,6 @@
   <div class="loader"></div>
   <p>في انتظار صاحبك...</p>
 </div>
-
 <!-- ===== شاشة اللعبة ===== -->
 <div id="game" class="screen">
   <div id="hud">
@@ -330,12 +332,9 @@
   <button id="restartBtn" onclick="restartGame()">🔄 العب مرة ثانية</button>
   
   <div id="controls">
-    <!-- أزرار الحركة -->
     <div class="control-btn btn-left"   ontouchstart="pressBtn('left', true)"  ontouchend="pressBtn('left', false)">◀</div>
     <div class="control-btn btn-right"  ontouchstart="pressBtn('right', true)" ontouchend="pressBtn('right', false)">▶</div>
     <div class="control-btn btn-jump"   ontouchstart="pressBtn('jump', true)"  ontouchend="pressBtn('jump', false)">⬆</div>
-    
-    <!-- أزرار الهجوم -->
     <div class="control-btn btn-punch"  ontouchstart="pressBtn('punch', true)" ontouchend="pressBtn('punch', false)">👊</div>
     <div class="control-btn btn-skill1" ontouchstart="pressBtn('skill1', true)" ontouchend="pressBtn('skill1', false)">💥</div>
     <div class="control-btn btn-skill2" ontouchstart="pressBtn('skill2', true)" ontouchend="pressBtn('skill2', false)">⚡</div>
@@ -344,14 +343,28 @@
 </div>
 
 <script>
-  // المتغيرات الأساسية
+  // ===== إعداد Firebase =====
+  const firebaseConfig = {
+    apiKey: "AIzaSyCX8nbhYIZGUZHx8Aa-3jqM2WmsS2d1hts",
+    authDomain: "character-battle.firebaseapp.com",
+    databaseURL: "https://character-battle-default-rtdb.firebaseio.com",
+    projectId: "character-battle",
+    storageBucket: "character-battle.firebasestorage.app",
+    messagingSenderId: "391375079008",
+    appId: "1:391375079008:web:d500901f45917d30e7e505"
+  };
+  
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // ===== المتغيرات الأساسية =====
   let playerName = '';
   let playerChar = 'goku';
-  let myRole = null; // 'host' أو 'guest'
+  let myRole = null;
   let roomCode = '';
+  let roomRef = null;
   let connection = null;
   
-  // نقل بين الشاشات
   function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById(id).classList.add('active');
@@ -378,392 +391,450 @@
   function showJoinRoom() {
     showScreen('joinRoom');
   }
-// ===== الأونلاين بـ PeerJS =====
-const peer = new Peer({ debug: 2 });
+// ===== الأونلاين بـ Firebase =====
 
-peer.on('open', (id) => {
-  console.log('PeerJS متصل! ID:', id);
-  roomCode = id;
-  const el = document.getElementById('roomCodeDisplay');
-  if (el) el.textContent = id;
-});
-
-peer.on('error', (err) => {
-  console.error('خطأ PeerJS:', err);
-  alert('خطأ في الاتصال: ' + err.type);
-});
-
-peer.on('connection', (conn) => {
-  console.log('وصل اتصال جديد');
-  connection = conn;
-  setupConnection();
-});
+function generateRoomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
+}
 
 function createRoom() {
   myRole = 'host';
+  roomCode = generateRoomCode();
+  
   showScreen('waiting');
-  if (roomCode) {
-    document.getElementById('roomCodeDisplay').textContent = roomCode;
+  document.getElementById('roomCodeDisplay').textContent = roomCode;
+  
+  roomRef = db.ref('rooms/' + roomCode);
+  
+  roomRef.set({
+    createdAt: Date.now(),
+    host: {
+      name: playerName,
+      char: playerChar,
+      ready: false
+    }
+  }).then(() => {
+    console.log('الغرفة جاهزة:', roomCode);
+    
+    roomRef.on('value', (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+      
+      if (data.guest && !connection) {
+        connection = {
+          guest: data.guest,
+          send: (msg) => {
+            if (msg.type === 'state') {
+              roomRef.child('hostState').set(msg);
+            } else if (msg.type === 'hit') {
+              roomRef.child('guestHp').transaction(hp => (hp || 100) - msg.damage);
+            } else if (msg.type === 'special') {
+              roomRef.child('hostSpecial').set({ skill: msg.skill, time: Date.now() });
+            }
+          }
+        };
+        
+        enemyName = data.guest.name;
+        enemyChar = data.guest.char;
+        
+        startGame();
+        setupFirebaseListeners();
+      }
+    });
+  }).catch(err => {
+    alert('خطأ: ' + err.message);
+  });
+}
+
+function joinRoom() {
+  myRole = 'guest';
+  const code = document.getElementById('roomCodeInput').value.trim().toUpperCase();
+  if (code.length !== 6) { alert('الكود لازم يكون 6 حروف/أرقام!'); return; }
+  
+  showScreen('waiting');
+  document.querySelector('#waiting h1').textContent = 'جاري الاتصال...';
+  document.getElementById('roomCodeDisplay').textContent = code;
+  
+  roomRef = db.ref('rooms/' + code);
+  
+  roomRef.once('value').then(snapshot => {
+    const data = snapshot.val();
+    
+    if (!data) {
+      alert('الغرفة غير موجودة! تأكد من الكود');
+      showScreen('roomOptions');
+      return;
+    }
+    
+    if (data.guest) {
+      alert('الغرفة ممتلئة!');
+      showScreen('roomOptions');
+      return;
+    }
+    
+    roomRef.child('guest').set({
+      name: playerName,
+      char: playerChar,
+      joinedAt: Date.now()
+    });
+    
+    enemyName = data.host.name;
+    enemyChar = data.host.char;
+    roomCode = code;
+    
+    startGame();
+    setupFirebaseListeners();
+    
+  }).catch(err => {
+    alert('خطأ: ' + err.message);
+  });
+}
+
+function setupFirebaseListeners() {
+  if (!roomRef) return;
+  
+  const opponentKey = myRole === 'host' ? 'guestState' : 'hostState';
+  roomRef.child(opponentKey).on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      updateEnemyFromFirebase(data);
+    }
+  });
+  
+  const specialKey = myRole === 'host' ? 'guestSpecial' : 'hostSpecial';
+  roomRef.child(specialKey).on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (data && data.time && Date.now() - data.time < 1000) {
+      if (enemyFighter && myFighter) {
+        enemyFighter.specialAttack(myFighter, data.skill);
+      }
+    }
+  });
+  
+  const hpKey = myRole === 'host' ? 'hostHp' : 'guestHp';
+  roomRef.child(hpKey).on('value', (snapshot) => {
+    const hp = snapshot.val();
+    if (hp !== null && myFighter) {
+      myFighter.hp = hp;
+      if (hp <= 0) endGame(enemyName);
+    }
+  });
+}
+
+function sendState() {
+  if (!roomRef || !myFighter) return;
+  
+  const stateKey = myRole === 'host' ? 'hostState' : 'guestState';
+  roomRef.child(stateKey).set({
+    x: myFighter.x,
+    y: myFighter.y,
+    facing: myFighter.facing,
+    hp: myFighter.hp,
+    energy: myFighter.energy,
+    attacking: myFighter.attackTimer > 0
+  });
+}
+
+function updateEnemyFromFirebase(data) {
+  if (!enemyFighter) return;
+  enemyTargetX = data.x;
+  enemyTargetY = data.y;
+  enemyFighter.facing = data.facing;
+  enemyFighter.hp = data.hp;
+  enemyFighter.energy = data.energy;
+  if (data.attacking) enemyFighter.attackTimer = 10;
+  }
+
+  // ===== اللعبة =====
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let GROUND = 300;
+let gameOver = false;
+let myFighter = null;
+let enemyFighter = null;
+let enemyName = 'الخصم';
+let enemyChar = 'vegeta';
+let enemyTargetX = 0, enemyTargetY = 0;
+
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+  GROUND = canvas.height - 60;
+}
+window.addEventListener('resize', resizeCanvas);
+
+class Fighter {
+  constructor(x, color, name, facing) {
+    this.x = x;
+    this.y = GROUND;
+    this.vx = 0;
+    this.vy = 0;
+    this.width = 50;
+    this.height = 70;
+    this.color = color;
+    this.name = name;
+    this.facing = facing;
+    this.hp = 100;
+    this.maxHp = 100;
+    this.energy = 0;
+    this.maxEnergy = 100;
+    this.onGround = true;
+    this.attackCooldown = 0;
+    this.attackTimer = 0;
+    this.hitFlash = 0;
+    this.specialActive = null;
+    this.specialTimer = 0;
+    this.specialData = null;
+  }
+  
+  update() {
+    if (gameOver) return;
+    this.vy += 0.8;
+    this.y += this.vy;
+    if (this.y >= GROUND) {
+      this.y = GROUND;
+      this.vy = 0;
+      this.onGround = true;
+    }
+    this.x += this.vx;
+    this.vx *= 0.85;
+    if (this.x < 30) this.x = 30;
+    if (this.x > canvas.width - 30) this.x = canvas.width - 30;
+    this.energy = Math.min(this.maxEnergy, this.energy + 0.3);
+    if (this.attackCooldown > 0) this.attackCooldown--;
+    if (this.attackTimer > 0) this.attackTimer--;
+    if (this.hitFlash > 0) this.hitFlash--;
+    if (this.specialTimer > 0) {
+      this.specialTimer--;
+      if (this.specialTimer <= 0) this.specialActive = null;
+    }
+  }
+  
+  draw() {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(this.x, GROUND + 5, this.width/1.5, 8, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = this.hitFlash > 0 ? '#fff' : this.color;
+    ctx.fillRect(this.x - this.width/2, this.y - this.height, this.width, this.height);
+    ctx.beginPath();
+    ctx.arc(this.x, this.y - this.height - 12, 18, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(this.x + this.facing * 5, this.y - this.height - 15, 3, 0, Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(this.x + this.facing * 11, this.y - this.height - 15, 3, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.name, this.x, this.y - this.height - 38);
+    if (this.attackTimer > 0) {
+      ctx.fillStyle = 'rgba(255, 255, 0, 0.7)';
+      ctx.beginPath();
+      ctx.arc(this.x + this.facing * 40, this.y - this.height/2, 22, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  
+  move(dir) {
+    if (gameOver) return;
+    this.vx = dir * 5;
+    this.facing = dir;
+  }
+  
+  jump() {
+    if (gameOver) return;
+    if (this.onGround) {
+      this.vy = -14;
+      this.onGround = false;
+    }
+  }
+  
+  meleeAttack(target) {
+    if (gameOver || !target) return;
+    if (this.attackCooldown > 0) return;
+    this.attackTimer = 10;
+    this.attackCooldown = 25;
+    const attackX = this.x + this.facing * 40;
+    const dist = Math.abs(attackX - target.x);
+    const vertDist = Math.abs((this.y - this.height/2) - (target.y - target.height/2));
+    if (dist < 45 && vertDist < 60) {
+      target.takeDamage(8);
+      if (roomRef) {
+        const hpKey = myRole === 'host' ? 'guestHp' : 'hostHp';
+        roomRef.child(hpKey).transaction(hp => (hp || 100) - 8);
+      }
+    }
+  }
+  
+  specialAttack(target, type) {
+    if (gameOver || !target) return;
+    if (this.attackCooldown > 0) return;
+    const cost = type === 'ult' ? 50 : 25;
+    if (this.energy < cost) return;
+    this.energy -= cost;
+    this.attackCooldown = 40;
+    this.specialActive = type;
+    this.specialTimer = 30;
+    this.specialData = {
+      startX: this.x,
+      startY: this.y - this.height/2,
+      targetX: target.x,
+      targetY: target.y - target.height/2,
+      damage: type === 'ult' ? 25 : 15
+    };
+    if (roomRef) {
+      const specialKey = myRole === 'host' ? 'hostSpecial' : 'guestSpecial';
+      roomRef.child(specialKey).set({ skill: type, time: Date.now() });
+    }
+  }
+  
+  takeDamage(amount) {
+    this.hp -= amount;
+    this.hitFlash = 10;
+    if (this.hp <= 0) {
+      this.hp = 0;
+      endGame(this.name);
+    }
+  }
+  }
+  function startGame() {
+  showScreen('game');
+  setTimeout(() => {
+    resizeCanvas();
+    let myColor, enemyColor;
+    myColor = playerChar === 'goku' ? '#ff8800' : '#0066ff';
+    enemyColor = playerChar === 'goku' ? '#0066ff' : '#ff8800';
+    
+    myFighter = new Fighter(120, myColor, playerName, 1);
+    enemyFighter = new Fighter(canvas.width - 120, enemyColor, enemyName, -1);
+    document.getElementById('controls').classList.add('active');
+    document.getElementById('p1name').textContent = playerName;
+    document.getElementById('p2name').textContent = enemyName;
+    
+    if (myRole === 'host') {
+      roomRef.child('guestState').once('value').then(snap => {
+        if (snap.val()) updateEnemyFromFirebase(snap.val());
+      });
+    }
+    
+    gameLoop();
+  }, 300);
+}
+
+const btnState = {};
+
+function pressBtn(btn, pressed) {
+  btnState[btn] = pressed;
+  if (!myFighter || gameOver) return;
+  if (pressed) {
+    if (btn === 'jump') myFighter.jump();
+    if (btn === 'punch') myFighter.meleeAttack(enemyFighter);
+    if (btn === 'skill1') myFighter.specialAttack(enemyFighter, 'skill1');
+    if (btn === 'skill2') myFighter.specialAttack(enemyFighter, 'skill2');
+    if (btn === 'ult') myFighter.specialAttack(enemyFighter, 'ult');
   }
 }
 
+let lastSendTime = 0;
+
+function gameLoop() {
+  if (!myFighter || gameOver) return;
+  if (btnState['left']) myFighter.move(-1);
+  else if (btnState['right']) myFighter.move(1);
+  else myFighter.vx *= 0.7;
   
-  function joinRoom() {
-    myRole = 'guest';
-    const code = document.getElementById('roomCodeInput').value.trim().toUpperCase();
-    if (code.length < 4) { alert('كود غلط!'); return; }
-    
-    showScreen('waiting');
-    document.querySelector('#waiting h1').textContent = 'جاري الاتصال...';
-    
-const conn = peer.connect(code);
-    connection = conn;
-    setupConnection();
+  myFighter.update();
+  if (enemyFighter) enemyFighter.update();
+  
+  const now = Date.now();
+  if (now - lastSendTime > 50) {
+    sendState();
+    lastSendTime = now;
   }
   
-  function setupConnection() {
-    connection.on('open', () => {
-      connection.send({
-        type: 'hello',
-        name: playerName,
-        char: playerChar
-      });
-      startGame();
-    });
-    
-    connection.on('data', (data) => {
-      handleNetworkData(data);
-    });
-    
-    connection.on('close', () => {
-      alert('انقطع الاتصال');
-    });
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#5a7a5a';
+  ctx.beginPath();
+  ctx.moveTo(0, canvas.height * 0.6);
+  ctx.lineTo(canvas.width * 0.2, canvas.height * 0.4);
+  ctx.lineTo(canvas.width * 0.4, canvas.height * 0.6);
+  ctx.lineTo(canvas.width * 0.6, canvas.height * 0.35);
+  ctx.lineTo(canvas.width * 0.8, canvas.height * 0.55);
+  ctx.lineTo(canvas.width, canvas.height * 0.4);
+  ctx.lineTo(canvas.width, GROUND);
+  ctx.lineTo(0, GROUND);
+  ctx.fill();
+  ctx.fillStyle = '#8b7355';
+  ctx.fillRect(0, GROUND, canvas.width, canvas.height - GROUND);
+  
+  if (enemyFighter) {
+    enemyFighter.x = enemyTargetX || enemyFighter.x;
+    enemyFighter.y = enemyTargetY || enemyFighter.y;
+    enemyFighter.draw();
   }
+  myFighter.draw();
   
-  function handleNetworkData(data) {
-    if (data.type === 'hello') {
-      enemyName = data.name;
-      enemyChar = data.char;
-      updateNames();
-    }
-    
-    if (data.type === 'state') {
-      updateEnemyFromNetwork(data);
-    }
-    
-    if (data.type === 'hit') {
-      if (myFighter) myFighter.takeDamage(data.damage);
-    }
-    
-    if (data.type === 'special') {
-      if (enemyFighter && myFighter) enemyFighter.specialAttack(myFighter, data.skill);
-    }
-  }
-  
-  function sendState() {
-    if (!connection || !myFighter) return;
-    connection.send({
-      type: 'state',
-      x: myFighter.x,
-      y: myFighter.y,
-      facing: myFighter.facing,
-      hp: myFighter.hp,
-      energy: myFighter.energy,
-      attacking: myFighter.attackTimer > 0
-    });
-  }
-  
-  // ===== اللعبة =====
-  const canvas = document.getElementById('gameCanvas');
-  const ctx = canvas.getContext('2d');
-  let GROUND = 300;
-  let gameOver = false;
-  let myFighter = null;
-  let enemyFighter = null;
-  let enemyName = 'الخصم';
-  let enemyChar = 'vegeta';
-  let enemyTargetX = 0, enemyTargetY = 0;
-  
-  function resizeCanvas() {
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-    GROUND = canvas.height - 60;
-  }
-  window.addEventListener('resize', resizeCanvas);
-  
-  class Fighter {
-    constructor(x, color, name, facing) {
-      this.x = x;
-      this.y = GROUND;
-      this.vx = 0;
-      this.vy = 0;
-      this.width = 50;
-      this.height = 70;
-      this.color = color;
-      this.name = name;
-      this.facing = facing;
-      this.hp = 100;
-      this.maxHp = 100;
-      this.energy = 0;
-      this.maxEnergy = 100;
-      this.onGround = true;
-      this.attackCooldown = 0;
-      this.attackTimer = 0;
-      this.hitFlash = 0;
-      this.specialActive = null;
-      this.specialTimer = 0;
-      this.specialData = null;
-    }
-    
-    update() {
-      if (gameOver) return;
-      this.vy += 0.8;
-      this.y += this.vy;
-      if (this.y >= GROUND) {
-        this.y = GROUND;
-        this.vy = 0;
-        this.onGround = true;
-      }
-      this.x += this.vx;
-      this.vx *= 0.85;
-      if (this.x < 30) this.x = 30;
-      if (this.x > canvas.width - 30) this.x = canvas.width - 30;
-      this.energy = Math.min(this.maxEnergy, this.energy + 0.3);
-      if (this.attackCooldown > 0) this.attackCooldown--;
-      if (this.attackTimer > 0) this.attackTimer--;
-      if (this.hitFlash > 0) this.hitFlash--;
-      if (this.specialTimer > 0) {
-        this.specialTimer--;
-        if (this.specialTimer <= 0) this.specialActive = null;
-      }
-    }
-    
-    draw() {
-      ctx.save();
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  [myFighter, enemyFighter].forEach(fighter => {
+    if (fighter && fighter.specialActive && fighter.specialData) {
+      const d = fighter.specialData;
+      const progress = (30 - fighter.specialTimer) / 30;
+      const cx = d.startX + (d.targetX - d.startX) * Math.min(progress * 1.5, 1);
+      const cy = d.startY + (d.targetY - d.startY) * Math.min(progress * 1.5, 1);
+      const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, 35);
+      gradient.addColorStop(0, '#ffffff');
+      gradient.addColorStop(0.5, fighter === myFighter ? '#00ccff' : '#ffcc00');
+      gradient.addColorStop(1, 'rgba(0,100,255,0)');
+      ctx.fillStyle = gradient;
       ctx.beginPath();
-      ctx.ellipse(this.x, GROUND + 5, this.width/1.5, 8, 0, 0, Math.PI*2);
+      ctx.arc(cx, cy, 35, 0, Math.PI*2);
       ctx.fill();
-      ctx.fillStyle = this.hitFlash > 0 ? '#fff' : this.color;
-      ctx.fillRect(this.x - this.width/2, this.y - this.height, this.width, this.height);
-      ctx.beginPath();
-      ctx.arc(this.x, this.y - this.height - 12, 18, 0, Math.PI*2);
-      ctx.fill();
-      ctx.fillStyle = '#000';
-      ctx.beginPath();
-      ctx.arc(this.x + this.facing * 5, this.y - this.height - 15, 3, 0, Math.PI*2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(this.x + this.facing * 11, this.y - this.height - 15, 3, 0, Math.PI*2);
-      ctx.fill();
-      ctx.fillStyle = '#ffcc00';
-      ctx.font = 'bold 12px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(this.name, this.x, this.y - this.height - 38);
-      if (this.attackTimer > 0) {
-        ctx.fillStyle = 'rgba(255, 255, 0, 0.7)';
-        ctx.beginPath();
-        ctx.arc(this.x + this.facing * 40, this.y - this.height/2, 22, 0, Math.PI*2);
-        ctx.fill();
-      }
-      ctx.restore();
-    }
-    
-    move(dir) {
-      if (gameOver) return;
-      this.vx = dir * 5;
-      this.facing = dir;
-    }
-    
-    jump() {
-      if (gameOver) return;
-      if (this.onGround) {
-        this.vy = -14;
-        this.onGround = false;
-      }
-    }
-    
-    meleeAttack(target) {
-      if (gameOver || !target) return;
-      if (this.attackCooldown > 0) return;
-      this.attackTimer = 10;
-      this.attackCooldown = 25;
-      const attackX = this.x + this.facing * 40;
-      const dist = Math.abs(attackX - target.x);
-      const vertDist = Math.abs((this.y - this.height/2) - (target.y - target.height/2));
-      if (dist < 45 && vertDist < 60) {
-        target.takeDamage(8);
-        if (connection) connection.send({ type: 'hit', damage: 8 });
-      }
-    }
-    
-    specialAttack(target, type) {
-      if (gameOver || !target) return;
-      if (this.attackCooldown > 0) return;
-      const cost = type === 'ult' ? 50 : 25;
-      if (this.energy < cost) return;
-      this.energy -= cost;
-      this.attackCooldown = 40;
-      this.specialActive = type;
-      this.specialTimer = 30;
-      this.specialData = {
-        startX: this.x,
-        startY: this.y - this.height/2,
-        targetX: target.x,
-        targetY: target.y - target.height/2,
-        damage: type === 'ult' ? 25 : 15
-      };
-      if (connection) connection.send({ type: 'special', skill: type });
-    }
-    
-    takeDamage(amount) {
-      this.hp -= amount;
-      this.hitFlash = 10;
-      if (this.hp <= 0) {
-        this.hp = 0;
-        endGame(this.name);
-      }
-    }
-  }
-  
-  function startGame() {
-    showScreen('game');
-    setTimeout(() => {
-      resizeCanvas();
-      let myColor, enemyColor;
-      if (myRole === 'host') {
-        myColor = playerChar === 'goku' ? '#ff8800' : '#0066ff';
-        enemyColor = playerChar === 'goku' ? '#0066ff' : '#ff8800';
-      } else {
-        myColor = playerChar === 'goku' ? '#ff8800' : '#0066ff';
-        enemyColor = playerChar === 'goku' ? '#0066ff' : '#ff8800';
-      }
-      myFighter = new Fighter(120, myColor, playerName, 1);
-      enemyFighter = new Fighter(canvas.width - 120, enemyColor, enemyName, -1);
-      document.getElementById('controls').classList.add('active');
-      document.getElementById('p1name').textContent = playerName;
-      document.getElementById('p2name').textContent = enemyName;
-      gameLoop();
-    }, 300);
-  }
-  
-  function updateNames() {
-    document.getElementById('p2name').textContent = enemyName;
-  }
-  
-  const btnState = {};
-  
-  function pressBtn(btn, pressed) {
-    btnState[btn] = pressed;
-    if (!myFighter || gameOver) return;
-    if (pressed) {
-      if (btn === 'jump') myFighter.jump();
-      if (btn === 'punch') myFighter.meleeAttack(enemyFighter);
-      if (btn === 'skill1') myFighter.specialAttack(enemyFighter, 'skill1');
-      if (btn === 'skill2') myFighter.specialAttack(enemyFighter, 'skill2');
-      if (btn === 'ult') myFighter.specialAttack(enemyFighter, 'ult');
-    }
-  }
-  
-  let lastSendTime = 0;
-  
-  function gameLoop() {
-    if (!myFighter || gameOver) return;
-    if (btnState['left']) myFighter.move(-1);
-    else if (btnState['right']) myFighter.move(1);
-    else myFighter.vx *= 0.7;
-    
-    myFighter.update();
-    if (enemyFighter) enemyFighter.update();
-    
-    const now = Date.now();
-    if (now - lastSendTime > 50) {
-      sendState();
-      lastSendTime = now;
-    }
-    
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#5a7a5a';
-    ctx.beginPath();
-    ctx.moveTo(0, canvas.height * 0.6);
-    ctx.lineTo(canvas.width * 0.2, canvas.height * 0.4);
-    ctx.lineTo(canvas.width * 0.4, canvas.height * 0.6);
-    ctx.lineTo(canvas.width * 0.6, canvas.height * 0.35);
-    ctx.lineTo(canvas.width * 0.8, canvas.height * 0.55);
-    ctx.lineTo(canvas.width, canvas.height * 0.4);
-    ctx.lineTo(canvas.width, GROUND);
-    ctx.lineTo(0, GROUND);
-    ctx.fill();
-    ctx.fillStyle = '#8b7355';
-    ctx.fillRect(0, GROUND, canvas.width, canvas.height - GROUND);
-    
-    if (enemyFighter) {
-      enemyFighter.x = enemyTargetX || enemyFighter.x;
-      enemyFighter.y = enemyTargetY || enemyFighter.y;
-      enemyFighter.draw();
-    }
-    myFighter.draw();
-    
-    [myFighter, enemyFighter].forEach(fighter => {
-      if (fighter && fighter.specialActive && fighter.specialData) {
-        const d = fighter.specialData;
-        const progress = (30 - fighter.specialTimer) / 30;
-        const cx = d.startX + (d.targetX - d.startX) * Math.min(progress * 1.5, 1);
-        const cy = d.startY + (d.targetY - d.startY) * Math.min(progress * 1.5, 1);
-        const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, 35);
-        gradient.addColorStop(0, '#ffffff');
-        gradient.addColorStop(0.5, fighter === myFighter ? '#00ccff' : '#ffcc00');
-        gradient.addColorStop(1, 'rgba(0,100,255,0)');
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(cx, cy, 35, 0, Math.PI*2);
-        ctx.fill();
-        const target = fighter === myFighter ? enemyFighter : myFighter;
-        if (target) {
-          const dist = Math.hypot(cx - target.x, cy - (target.y - target.height/2));
-          if (dist < 50 && fighter.specialTimer > 25) {
-            target.takeDamage(d.damage);
-            fighter.specialData = null;
-            fighter.specialActive = null;
-            fighter.specialTimer = 0;
-          }
+      const target = fighter === myFighter ? enemyFighter : myFighter;
+      if (target) {
+        const dist = Math.hypot(cx - target.x, cy - (target.y - target.height/2));
+        if (dist < 50 && fighter.specialTimer > 25) {
+          target.takeDamage(d.damage);
+          fighter.specialData = null;
+          fighter.specialActive = null;
+          fighter.specialTimer = 0;
         }
       }
-    });
-    
-    document.getElementById('p1hp').style.width = (myFighter.hp / 100 * 100) + '%';
-    document.getElementById('p1en').style.width = (myFighter.energy / 100 * 100) + '%';
-    if (enemyFighter) {
-      document.getElementById('p2hp').style.width = (enemyFighter.hp / 100 * 100) + '%';
-      document.getElementById('p2en').style.width = (enemyFighter.energy / 100 * 100) + '%';
     }
-    
-    requestAnimationFrame(gameLoop);
+  });
+  
+  document.getElementById('p1hp').style.width = (myFighter.hp / 100 * 100) + '%';
+  document.getElementById('p1en').style.width = (myFighter.energy / 100 * 100) + '%';
+  if (enemyFighter) {
+    document.getElementById('p2hp').style.width = (enemyFighter.hp / 100 * 100) + '%';
+    document.getElementById('p2en').style.width = (enemyFighter.energy / 100 * 100) + '%';
   }
   
-  function updateEnemyFromNetwork(data) {
-    if (!enemyFighter) return;
-    enemyTargetX = data.x;
-    enemyTargetY = data.y;
-    enemyFighter.facing = data.facing;
-    enemyFighter.hp = data.hp;
-    enemyFighter.energy = data.energy;
-    if (data.attacking) enemyFighter.attackTimer = 10;
-    if (enemyFighter.hp <= 0 && !gameOver) endGame(playerName);
-  }
-  
-  function endGame(winnerName) {
-    gameOver = true;
-    const msg = document.getElementById('message');
-    msg.textContent = '🏆 ' + winnerName + ' فاز!';
-    msg.style.display = 'block';
-    document.getElementById('restartBtn').style.display = 'block';
-  }
-  
-  function restartGame() {
-    location.reload();
-  }
+  requestAnimationFrame(gameLoop);
+}
+
+function endGame(winnerName) {
+  gameOver = true;
+  const msg = document.getElementById('message');
+  msg.textContent = '🏆 ' + winnerName + ' فاز!';
+  msg.style.display = 'block';
+  document.getElementById('restartBtn').style.display = 'block';
+}
+
+function restartGame() {
+  location.reload();
+        }
 </script>
 </body>
-</html>  
+</html>
+
