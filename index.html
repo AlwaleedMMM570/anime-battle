@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+< lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>معركة الأنمي - أونلاين</title>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: Arial, sans-serif;
+    color: white;
+    user-select: none;
+    touch-action: none;
+  }
+
+  /* ===== الشاشات ===== */
+  .screen {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .screen.active { display: flex; }
+
+  /* ===== الشاشة الرئيسية ===== */
+  #menu {
+    background: linear-gradient(180deg, #1a0033 0%, #000 100%);
+  }
+
+  h1 {
+    font-size: 28px;
+    color: #ffcc00;
+    text-shadow: 0 0 10px #ff6600;
+    margin-bottom: 20px;
+    text-align: center;
+  }
+
+  .input-box {
+    width: 90%;
+    max-width: 400px;
+    padding: 15px;
+    font-size: 18px;
+    border-radius: 10px;
+    border: 2px solid #ffcc00;
+    background: #222;
+    color: white;
+    margin-bottom: 15px;
+    text-align: center;
+  }
+
+  .btn {
+    width: 90%;
+    max-width: 400px;
+    padding: 18px;
+    font-size: 20px;
+    font-weight: bold;
+    border-radius: 12px;
+    border: none;
+    background: linear-gradient(180deg, #ff8800, #ff4400);
+    color: white;
+    margin-bottom: 12px;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(255,100,0,0.5);
+  }
+  .btn:active { transform: scale(0.97); }
+
+  .btn-blue {
+    background: linear-gradient(180deg, #00aaff, #0055cc);
+    box-shadow: 0 4px 10px rgba(0,100,255,0.5);
+  }
+
+  /* ===== شاشة اختيار الشخصية ===== */
+  .chars-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    width: 90%;
+    max-width: 500px;
+    margin-top: 20px;
+  }
+
+  .char-card {
+    padding: 20px;
+    border-radius: 15px;
+    border: 3px solid #fff;
+    text-align: center;
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: bold;
+  }
+  .char-card.selected { border-color: #ffcc00; box-shadow: 0 0 20px #ffcc00; }
+
+  .goku { background: linear-gradient(180deg, #ff8800, #cc4400); }
+  .vegeta { background: linear-gradient(180deg, #0066ff, #003388); }
+
+  /* ===== شاشة الانتظار ===== */
+  #waiting .room-code {
+    font-size: 50px;
+    font-weight: bold;
+    letter-spacing: 8px;
+    color: #ffcc00;
+    text-shadow: 0 0 20px #ff6600;
+    padding: 20px;
+    background: #222;
+    border-radius: 15px;
+    border: 2px solid #ffcc00;
+    margin: 20px 0;
+  }
+
+  .loader {
+    border: 4px solid #333;
+    border-top: 4px solid #ffcc00;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 20px;
+  }
+  @keyframes spin { 100% { transform: rotate(360deg); } }
+
+  /* ===== شاشة اللعبة ===== */
+  #game {
+    padding: 0;
+    justify-content: flex-start;
+  }
+
+  #hud {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    padding: 8px;
+    background: rgba(0,0,0,0.7);
+    gap: 10px;
+  }
+
+  .hud-player { flex: 1; }
+
+  .hud-name {
+    font-size: 14px;
+    font-weight: bold;
+    margin-bottom: 3px;
+  }
+
+  .hp-bar {
+    width: 100%;
+    height: 18px;
+    background: #333;
+    border: 1px solid #fff;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .hp-fill {
+    height: 100%;
+    width: 100%;
+    transition: width 0.2s;
+  }
+  #p1 .hp-fill { background: linear-gradient(90deg, #ff6600, #ffcc00); }
+  #p2 .hp-fill { background: linear-gradient(90deg, #0066ff, #00ccff); }
+
+  .energy-bar {
+    width: 100%;
+    height: 8px;
+    background: #333;
+    border-radius: 2px;
+    margin-top: 3px;
+    overflow: hidden;
+  }
+  .energy-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #00ff00, #ccff00);
+    transition: width 0.2s;
+  }
+
+  #gameCanvas {
+    width: 100%;
+    height: auto;
+    flex: 1;
+    background: linear-gradient(180deg, #4a90e2 0%, #87ceeb 55%, #8b7355 55%, #654321 100%);
+    display: block;
+  }
+
+  /* ===== أزرار التحكم على الجوال ===== */
+  #controls {
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 100%;
+    height: 220px;
+    pointer-events: none;
+    display: none;
+  }
+  #controls.active { display: block; }
+
+  .control-btn {
+    position: absolute;
+    background: rgba(0,0,0,0.6);
+    border: 2px solid #fff;
+    border-radius: 50%;
+    color: white;
+    font-size: 24px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+  .control-btn:active { background: rgba(255,204,0,0.7); }
+
+  /* يمين: الحركة */
+  .btn-left   { left: 15px;  bottom: 100px; width: 65px; height: 65px; }
+  .btn-right  { left: 95px;  bottom: 100px; width: 65px; height: 65px; }
+  .btn-jump   { left: 55px;  bottom: 20px;  width: 65px; height: 65px; }
+
+  /* يسار: الأزرار الهجومية */
+  .btn-punch  { right: 15px; bottom: 140px; width: 60px; height: 60px; font-size: 22px; }
+  .btn-skill1 { right: 90px; bottom: 100px; width: 60px; height: 60px; font-size: 20px; }
+  .btn-skill2 { right: 15px; bottom: 75px;  width: 60px; height: 60px; font-size: 20px; }
+  .btn-ult    { right: 90px; bottom: 30px;  width: 60px; height: 60px; font-size: 22px; }
+
+  /* ===== رسالة الفوز ===== */
+  #message {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 45px;
+    font-weight: bold;
+    color: #ffcc00;
+    text-shadow: 0 0 20px #ff6600;
+    display: none;
+    z-index: 100;
+    text-align: center;
+    background: rgba(0,0,0,0.85);
+    padding: 30px;
+    border-radius: 20px;
+    border: 3px solid #ffcc00;
+  }
+
+  #restartBtn {
+    margin-top: 15px;
+    padding: 12px 30px;
+    font-size: 18px;
+    background: #ff6600;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: bold;
+    display: none;
+  }
+</style>
+</head>
+<>
+
+<!-- ===== شاشة البداية ===== -->
+<div id="menu" class="screen active">
+  <h1>⚔️ معركة الأنمي ⚔️</h1>
+  <input type="text" id="playerName" class="input-box" placeholder="اكتب اسمك" maxlength="12">
+  <button class="btn" onclick="showCharSelect()">التالي ➡️</button>
+</div>
+
+<!-- ===== شاشة اختيار الشخصية ===== -->
+<div id="charSelect" class="screen">
+  <h1>اختر شخصيتك</h1>
+  <div class="chars-grid">
+    <div class="char-card goku" onclick="selectChar('goku', this)">
+      <div style="font-size:40px;">🟠</div>
+      <div>غوكو</div>
+    </div>
+    <div class="char-card vegeta" onclick="selectChar('vegeta', this)">
+      <div style="font-size:40px;">🔵</div>
+      <div>فيجيتا</div>
+    </div>
+  </div>
+  <button class="btn" onclick="showRoomOptions()" style="margin-top:30px;">التالي ➡️</button>
+</div>
+
+<!-- ===== شاشة الغرفة ===== -->
+<div id="roomOptions" class="screen">
+  <h1>اللعب الأونلاين</h1>
+  <button class="btn" onclick="createRoom()">🎮 أنشئ غرفة</button>
+  <button class="btn btn-blue" onclick="showJoinRoom()">🔗 انضم لغرفة</button>
+</div>
+
+<!-- ===== شاشة الانضمام ===== -->
+<div id="joinRoom" class="screen">
+  <h1>انضم لغرفة</h1>
+  <input type="text" id="roomCodeInput" class="input-box" placeholder="اكتب كود الغرفة" maxlength="6" style="text-transform:uppercase;">
+  <button class="btn" onclick="joinRoom()">انضم</button>
+  <button class="btn btn-blue" onclick="showScreen('roomOptions')">رجوع</button>
+</div>
+
+<!-- ===== شاشة الانتظار ===== -->
+<div id="waiting" class="screen">
+  <h1>غرفتك جاهزة!</h1>
+  <p>أرسل هذا الكود لصاحبك:</p>
+  <div class="room-code" id="roomCodeDisplay">------</div>
+  <div class="loader"></div>
+  <p>في انتظار صاحبك...</p>
+</div>
+
+<!-- ===== شاشة اللعبة ===== -->
+<div id="game" class="screen">
+  <div id="hud">
+    <div class="hud-player" id="p1">
+      <div class="hud-name" id="p1name">غوكو</div>
+      <div class="hp-bar"><div class="hp-fill" id="p1hp"></div></div>
+      <div class="energy-bar"><div class="energy-fill" id="p1en"></div></div>
+    </div>
+    <div class="hud-player" id="p2">
+      <div class="hud-name" id="p2name">فيجيتا</div>
+      <div class="hp-bar"><div class="hp-fill" id="p2hp"></div></div>
+      <div class="energy-bar"><div class="energy-fill" id="p2en"></div></div>
+    </div>
+  </div>
+  
+  <canvas id="gameCanvas"></canvas>
+  
+  <div id="message"></div>
+  <button id="restartBtn" onclick="restartGame()">🔄 العب مرة ثانية</button>
+  
+  <div id="controls">
+    <!-- أزرار الحركة -->
+    <div class="control-btn btn-left"   ontouchstart="pressBtn('left', true)"  ontouchend="pressBtn('left', false)">◀</div>
+    <div class="control-btn btn-right"  ontouchstart="pressBtn('right', true)" ontouchend="pressBtn('right', false)">▶</div>
+    <div class="control-btn btn-jump"   ontouchstart="pressBtn('jump', true)"  ontouchend="pressBtn('jump', false)">⬆</div>
+    
+    <!-- أزرار الهجوم -->
+    <div class="control-btn btn-punch"  ontouchstart="pressBtn('punch', true)" ontouchend="pressBtn('punch', false)">👊</div>
+    <div class="control-btn btn-skill1" ontouchstart="pressBtn('skill1', true)" ontouchend="pressBtn('skill1', false)">💥</div>
+    <div class="control-btn btn-skill2" ontouchstart="pressBtn('skill2', true)" ontouchend="pressBtn('skill2', false)">⚡</div>
+    <div class="control-btn btn-ult"    ontouchstart="pressBtn('ult', true)"    ontouchend="pressBtn('ult', false)">🔥</div>
+  </div>
+</div>
+
+<script>
+  // المتغيرات الأساسية
+  let playerName = '';
+  let playerChar = 'goku';
+  let myRole = null; // 'host' أو 'guest'
+  let roomCode = '';
+  let connection = null;
+  
+  // نقل بين الشاشات
+  function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+  
+  function showCharSelect() {
+    const name = document.getElementById('playerName').value.trim();
+    if (!name) { alert('اكتب اسمك أول!'); return; }
+    playerName = name;
+    showScreen('charSelect');
+  }
+  
+  function selectChar(char, el) {
+    playerChar = char;
+    document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+  }
+  
+  function showRoomOptions() {
+    if (!playerChar) { alert('اختر شخصية!'); return; }
+    showScreen('roomOptions');
+  }
+  
+  function showJoinRoom() {
+    showScreen('joinRoom');
+  }
+// ===== الأونلاين بـ PeerJS =====
+const peer = new Peer({ debug: 2 });
+
+peer.on('open', (id) => {
+  console.log('PeerJS متصل! ID:', id);
+  roomCode = id;
+  const el = document.getElementById('roomCodeDisplay');
+  if (el) el.textContent = id;
+});
+
+peer.on('error', (err) => {
+  console.error('خطأ PeerJS:', err);
+  alert('خطأ في الاتصال: ' + err.type);
+});
+
+peer.on('connection', (conn) => {
+  console.log('وصل اتصال جديد');
+  connection = conn;
+  setupConnection();
+});
+
+function createRoom() {
+  myRole = 'host';
+  showScreen('waiting');
+  if (roomCode) {
+    document.getElementById('roomCodeDisplay').textContent = roomCode;
+  }
+}
+
+  
+  function joinRoom() {
+    myRole = 'guest';
+    const code = document.getElementById('roomCodeInput').value.trim().toUpperCase();
+    if (code.length < 4) { alert('كود غلط!'); return; }
+    
+    showScreen('waiting');
+    document.querySelector('#waiting h1').textContent = 'جاري الاتصال...';
+    
+const conn = peer.connect(code);
+    connection = conn;
+    setupConnection();
+  }
+  
+  function setupConnection() {
+    connection.on('open', () => {
+      connection.send({
+        type: 'hello',
+        name: playerName,
+        char: playerChar
+      });
+      startGame();
+    });
+    
+    connection.on('data', (data) => {
+      handleNetworkData(data);
+    });
+    
+    connection.on('close', () => {
+      alert('انقطع الاتصال');
+    });
+  }
+  
+  function handleNetworkData(data) {
+    if (data.type === 'hello') {
+      enemyName = data.name;
+      enemyChar = data.char;
+      updateNames();
+    }
+    
+    if (data.type === 'state') {
+      updateEnemyFromNetwork(data);
+    }
+    
+    if (data.type === 'hit') {
+      if (myFighter) myFighter.takeDamage(data.damage);
+    }
+    
+    if (data.type === 'special') {
+      if (enemyFighter && myFighter) enemyFighter.specialAttack(myFighter, data.skill);
+    }
+  }
+  
+  function sendState() {
+    if (!connection || !myFighter) return;
+    connection.send({
+      type: 'state',
+      x: myFighter.x,
+      y: myFighter.y,
+      facing: myFighter.facing,
+      hp: myFighter.hp,
+      energy: myFighter.energy,
+      attacking: myFighter.attackTimer > 0
+    });
+  }
+  
+  // ===== اللعبة =====
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  let GROUND = 300;
+  let gameOver = false;
+  let myFighter = null;
+  let enemyFighter = null;
+  let enemyName = 'الخصم';
+  let enemyChar = 'vegeta';
+  let enemyTargetX = 0, enemyTargetY = 0;
+  
+  function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    GROUND = canvas.height - 60;
+  }
+  window.addEventListener('resize', resizeCanvas);
+  
+  class Fighter {
+    constructor(x, color, name, facing) {
+      this.x = x;
+      this.y = GROUND;
+      this.vx = 0;
+      this.vy = 0;
+      this.width = 50;
+      this.height = 70;
+      this.color = color;
+      this.name = name;
+      this.facing = facing;
+      this.hp = 100;
+      this.maxHp = 100;
+      this.energy = 0;
+      this.maxEnergy = 100;
+      this.onGround = true;
+      this.attackCooldown = 0;
+      this.attackTimer = 0;
+      this.hitFlash = 0;
+      this.specialActive = null;
+      this.specialTimer = 0;
+      this.specialData = null;
+    }
+    
+    update() {
+      if (gameOver) return;
+      this.vy += 0.8;
+      this.y += this.vy;
+      if (this.y >= GROUND) {
+        this.y = GROUND;
+        this.vy = 0;
+        this.onGround = true;
+      }
+      this.x += this.vx;
+      this.vx *= 0.85;
+      if (this.x < 30) this.x = 30;
+      if (this.x > canvas.width - 30) this.x = canvas.width - 30;
+      this.energy = Math.min(this.maxEnergy, this.energy + 0.3);
+      if (this.attackCooldown > 0) this.attackCooldown--;
+      if (this.attackTimer > 0) this.attackTimer--;
+      if (this.hitFlash > 0) this.hitFlash--;
+      if (this.specialTimer > 0) {
+        this.specialTimer--;
+        if (this.specialTimer <= 0) this.specialActive = null;
+      }
+    }
+    
+    draw() {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(this.x, GROUND + 5, this.width/1.5, 8, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = this.hitFlash > 0 ? '#fff' : this.color;
+      ctx.fillRect(this.x - this.width/2, this.y - this.height, this.width, this.height);
+      ctx.beginPath();
+      ctx.arc(this.x, this.y - this.height - 12, 18, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(this.x + this.facing * 5, this.y - this.height - 15, 3, 0, Math.PI*2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(this.x + this.facing * 11, this.y - this.height - 15, 3, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#ffcc00';
+      ctx.font = 'bold 12px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(this.name, this.x, this.y - this.height - 38);
+      if (this.attackTimer > 0) {
+        ctx.fillStyle = 'rgba(255, 255, 0, 0.7)';
+        ctx.beginPath();
+        ctx.arc(this.x + this.facing * 40, this.y - this.height/2, 22, 0, Math.PI*2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    
+    move(dir) {
+      if (gameOver) return;
+      this.vx = dir * 5;
+      this.facing = dir;
+    }
+    
+    jump() {
+      if (gameOver) return;
+      if (this.onGround) {
+        this.vy = -14;
+        this.onGround = false;
+      }
+    }
+    
+    meleeAttack(target) {
+      if (gameOver || !target) return;
+      if (this.attackCooldown > 0) return;
+      this.attackTimer = 10;
+      this.attackCooldown = 25;
+      const attackX = this.x + this.facing * 40;
+      const dist = Math.abs(attackX - target.x);
+      const vertDist = Math.abs((this.y - this.height/2) - (target.y - target.height/2));
+      if (dist < 45 && vertDist < 60) {
+        target.takeDamage(8);
+        if (connection) connection.send({ type: 'hit', damage: 8 });
+      }
+    }
+    
+    specialAttack(target, type) {
+      if (gameOver || !target) return;
+      if (this.attackCooldown > 0) return;
+      const cost = type === 'ult' ? 50 : 25;
+      if (this.energy < cost) return;
+      this.energy -= cost;
+      this.attackCooldown = 40;
+      this.specialActive = type;
+      this.specialTimer = 30;
+      this.specialData = {
+        startX: this.x,
+        startY: this.y - this.height/2,
+        targetX: target.x,
+        targetY: target.y - target.height/2,
+        damage: type === 'ult' ? 25 : 15
+      };
+      if (connection) connection.send({ type: 'special', skill: type });
+    }
+    
+    takeDamage(amount) {
+      this.hp -= amount;
+      this.hitFlash = 10;
+      if (this.hp <= 0) {
+        this.hp = 0;
+        endGame(this.name);
+      }
+    }
+  }
+  
+  function startGame() {
+    showScreen('game');
+    setTimeout(() => {
+      resizeCanvas();
+      let myColor, enemyColor;
+      if (myRole === 'host') {
+        myColor = playerChar === 'goku' ? '#ff8800' : '#0066ff';
+        enemyColor = playerChar === 'goku' ? '#0066ff' : '#ff8800';
+      } else {
+        myColor = playerChar === 'goku' ? '#ff8800' : '#0066ff';
+        enemyColor = playerChar === 'goku' ? '#0066ff' : '#ff8800';
+      }
+      myFighter = new Fighter(120, myColor, playerName, 1);
+      enemyFighter = new Fighter(canvas.width - 120, enemyColor, enemyName, -1);
+      document.getElementById('controls').classList.add('active');
+      document.getElementById('p1name').textContent = playerName;
+      document.getElementById('p2name').textContent = enemyName;
+      gameLoop();
+    }, 300);
+  }
+  
+  function updateNames() {
+    document.getElementById('p2name').textContent = enemyName;
+  }
+  
+  const btnState = {};
+  
+  function pressBtn(btn, pressed) {
+    btnState[btn] = pressed;
+    if (!myFighter || gameOver) return;
+    if (pressed) {
+      if (btn === 'jump') myFighter.jump();
+      if (btn === 'punch') myFighter.meleeAttack(enemyFighter);
+      if (btn === 'skill1') myFighter.specialAttack(enemyFighter, 'skill1');
+      if (btn === 'skill2') myFighter.specialAttack(enemyFighter, 'skill2');
+      if (btn === 'ult') myFighter.specialAttack(enemyFighter, 'ult');
+    }
+  }
+  
+  let lastSendTime = 0;
+  
+  function gameLoop() {
+    if (!myFighter || gameOver) return;
+    if (btnState['left']) myFighter.move(-1);
+    else if (btnState['right']) myFighter.move(1);
+    else myFighter.vx *= 0.7;
+    
+    myFighter.update();
+    if (enemyFighter) enemyFighter.update();
+    
+    const now = Date.now();
+    if (now - lastSendTime > 50) {
+      sendState();
+      lastSendTime = now;
+    }
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#5a7a5a';
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height * 0.6);
+    ctx.lineTo(canvas.width * 0.2, canvas.height * 0.4);
+    ctx.lineTo(canvas.width * 0.4, canvas.height * 0.6);
+    ctx.lineTo(canvas.width * 0.6, canvas.height * 0.35);
+    ctx.lineTo(canvas.width * 0.8, canvas.height * 0.55);
+    ctx.lineTo(canvas.width, canvas.height * 0.4);
+    ctx.lineTo(canvas.width, GROUND);
+    ctx.lineTo(0, GROUND);
+    ctx.fill();
+    ctx.fillStyle = '#8b7355';
+    ctx.fillRect(0, GROUND, canvas.width, canvas.height - GROUND);
+    
+    if (enemyFighter) {
+      enemyFighter.x = enemyTargetX || enemyFighter.x;
+      enemyFighter.y = enemyTargetY || enemyFighter.y;
+      enemyFighter.draw();
+    }
+    myFighter.draw();
+    
+    [myFighter, enemyFighter].forEach(fighter => {
+      if (fighter && fighter.specialActive && fighter.specialData) {
+        const d = fighter.specialData;
+        const progress = (30 - fighter.specialTimer) / 30;
+        const cx = d.startX + (d.targetX - d.startX) * Math.min(progress * 1.5, 1);
+        const cy = d.startY + (d.targetY - d.startY) * Math.min(progress * 1.5, 1);
+        const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, 35);
+        gradient.addColorStop(0, '#ffffff');
+        gradient.addColorStop(0.5, fighter === myFighter ? '#00ccff' : '#ffcc00');
+        gradient.addColorStop(1, 'rgba(0,100,255,0)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 35, 0, Math.PI*2);
+        ctx.fill();
+        const target = fighter === myFighter ? enemyFighter : myFighter;
+        if (target) {
+          const dist = Math.hypot(cx - target.x, cy - (target.y - target.height/2));
+          if (dist < 50 && fighter.specialTimer > 25) {
+            target.takeDamage(d.damage);
+            fighter.specialData = null;
+            fighter.specialActive = null;
+            fighter.specialTimer = 0;
+          }
+        }
+      }
+    });
+    
+    document.getElementById('p1hp').style.width = (myFighter.hp / 100 * 100) + '%';
+    document.getElementById('p1en').style.width = (myFighter.energy / 100 * 100) + '%';
+    if (enemyFighter) {
+      document.getElementById('p2hp').style.width = (enemyFighter.hp / 100 * 100) + '%';
+      document.getElementById('p2en').style.width = (enemyFighter.energy / 100 * 100) + '%';
+    }
+    
+    requestAnimationFrame(gameLoop);
+  }
+  
+  function updateEnemyFromNetwork(data) {
+    if (!enemyFighter) return;
+    enemyTargetX = data.x;
+    enemyTargetY = data.y;
+    enemyFighter.facing = data.facing;
+    enemyFighter.hp = data.hp;
+    enemyFighter.energy = data.energy;
+    if (data.attacking) enemyFighter.attackTimer = 10;
+    if (enemyFighter.hp <= 0 && !gameOver) endGame(playerName);
+  }
+  
+  function endGame(winnerName) {
+    gameOver = true;
+    const msg = document.getElementById('message');
+    msg.textContent = '🏆 ' + winnerName + ' فاز!';
+    msg.style.display = 'block';
+    document.getElementById('restartBtn').style.display = 'block';
+  }
+  
+  function restartGame() {
+    location.reload();
+  }
+</script>
+</body>
+</html>  
