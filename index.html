@@ -130,8 +130,9 @@
     animation: spin 1s linear infinite;
     margin: 20px;
   }
-
-    /* ===== شاشة اللعبة ===== */
+  @keyframes spin { 100% { transform: rotate(360deg); } }
+    
+  /* ===== شاشة اللعبة ===== */
   #game {
     padding: 0;
     justify-content: flex-start;
@@ -186,11 +187,15 @@
   }
 
   #gameCanvas {
-    width: 100%;
-    height: auto;
-    flex: 1;
-    background: linear-gradient(180deg, #4a90e2 0%, #87ceeb 55%, #8b7355 55%, #654321 100%);
-    display: block;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-color: #87ceeb;
+  object-fit: fill;
+  }
   }
 
   /* ===== أزرار التحكم على الجوال ===== */
@@ -220,18 +225,15 @@
   }
   .control-btn:active { background: rgba(255,204,0,0.7); }
 
-  /* يمين: الحركة */
   .btn-left   { left: 15px;  bottom: 100px; width: 65px; height: 65px; }
   .btn-right  { left: 95px;  bottom: 100px; width: 65px; height: 65px; }
   .btn-jump   { left: 55px;  bottom: 20px;  width: 65px; height: 65px; }
 
-  /* يسار: الأزرار الهجومية */
   .btn-punch  { right: 15px; bottom: 140px; width: 60px; height: 60px; font-size: 22px; }
   .btn-skill1 { right: 90px; bottom: 100px; width: 60px; height: 60px; font-size: 20px; }
   .btn-skill2 { right: 15px; bottom: 75px;  width: 60px; height: 60px; font-size: 20px; }
   .btn-ult    { right: 90px; bottom: 30px;  width: 60px; height: 60px; font-size: 22px; }
 
-  /* ===== رسالة الفوز ===== */
   #message {
     position: absolute;
     top: 50%; left: 50%;
@@ -260,6 +262,35 @@
     cursor: pointer;
     font-weight: bold;
     display: none;
+  }
+
+  /* ===== رسالة تدوير الشاشة ===== */
+  #rotateMsg {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.95);
+    color: #ffcc00;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    text-align: center;
+    padding: 20px;
+  }
+  #rotateMsg h2 {
+    font-size: 24px;
+    margin: 15px 0;
+  }
+  #rotateMsg p {
+    font-size: 16px;
+    color: #fff;
+  }
+  @media (orientation: portrait) {
+    #rotateMsg.active { display: flex; }
+    #controls.active { display: none; }
   }
 </style>
 </head>
@@ -311,6 +342,7 @@
   <div class="loader"></div>
   <p>في انتظار صاحبك...</p>
 </div>
+
 <!-- ===== شاشة اللعبة ===== -->
 <div id="game" class="screen">
   <div id="hud">
@@ -326,7 +358,7 @@
     </div>
   </div>
   
-  <canvas id="gameCanvas"></canvas>
+  <canvas id="gameCanvas" width="900" height="450"></canvas>
   
   <div id="message"></div>
   <button id="restartBtn" onclick="restartGame()">🔄 العب مرة ثانية</button>
@@ -340,6 +372,13 @@
     <div class="control-btn btn-skill2" ontouchstart="pressBtn('skill2', true)" ontouchend="pressBtn('skill2', false)">⚡</div>
     <div class="control-btn btn-ult"    ontouchstart="pressBtn('ult', true)"    ontouchend="pressBtn('ult', false)">🔥</div>
   </div>
+</div>
+
+<!-- ===== رسالة تدوير الشاشة ===== -->
+<div id="rotateMsg">
+  <div style="font-size:70px;">🔄</div>
+  <h2>دوّر جوالك للعرض</h2>
+  <p>عشان تلعب بشكل أفضل</p>
 </div>
 
 <script>
@@ -365,6 +404,7 @@
   let roomRef = null;
   let connection = null;
   
+  // نقل بين الشاشات
   function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById(id).classList.add('active');
@@ -391,166 +431,189 @@
   function showJoinRoom() {
     showScreen('joinRoom');
   }
-// ===== الأونلاين بـ Firebase =====
 
-function generateRoomCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = '';
-  for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return code;
-}
-
-function createRoom() {
-  myRole = 'host';
-  roomCode = generateRoomCode();
-  
-  showScreen('waiting');
-  document.getElementById('roomCodeDisplay').textContent = roomCode;
-  
-  roomRef = db.ref('rooms/' + roomCode);
-  
-  roomRef.set({
-    createdAt: Date.now(),
-    host: {
-      name: playerName,
-      char: playerChar,
-      ready: false
+  // ===== تدوير الشاشة =====
+  function tryLockLandscape() {
+    if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('landscape').catch(err => {
+        console.log('ما قدرنا ندوّر تلقائياً:', err);
+      });
     }
-  }).then(() => {
-    console.log('الغرفة جاهزة:', roomCode);
+  }
+  
+  function checkOrientation() {
+    const rotateMsg = document.getElementById('rotateMsg');
+    if (!rotateMsg) return;
     
-    roomRef.on('value', (snapshot) => {
-      const data = snapshot.val();
-      if (!data) return;
+    if (window.innerHeight > window.innerWidth) {
+      rotateMsg.classList.add('active');
+    } else {
+      rotateMsg.classList.remove('active');
+    }
+  }
+  
+  window.addEventListener('resize', checkOrientation);
+  window.addEventListener('orientationchange', checkOrientation);
+
+  // ===== الأونلاين بـ Firebase =====
+  
+  function generateRoomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+      code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
+  }
+  
+  function createRoom() {
+    myRole = 'host';
+    roomCode = generateRoomCode();
+    
+    showScreen('waiting');
+    document.getElementById('roomCodeDisplay').textContent = roomCode;
+    
+    roomRef = db.ref('rooms/' + roomCode);
+    
+    roomRef.set({
+      createdAt: Date.now(),
+      host: {
+        name: playerName,
+        char: playerChar,
+        ready: false
+      }
+    }).then(() => {
+      console.log('الغرفة جاهزة:', roomCode);
       
-      if (data.guest && !connection) {
-        connection = {
-          guest: data.guest,
-          send: (msg) => {
-            if (msg.type === 'state') {
-              roomRef.child('hostState').set(msg);
-            } else if (msg.type === 'hit') {
-              roomRef.child('guestHp').transaction(hp => (hp || 100) - msg.damage);
-            } else if (msg.type === 'special') {
-              roomRef.child('hostSpecial').set({ skill: msg.skill, time: Date.now() });
+      roomRef.on('value', (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
+        
+        if (data.guest && !connection) {
+          connection = {
+            guest: data.guest,
+            send: (msg) => {
+              if (msg.type === 'state') {
+                roomRef.child('hostState').set(msg);
+              } else if (msg.type === 'hit') {
+                roomRef.child('guestHp').transaction(hp => (hp || 100) - msg.damage);
+              } else if (msg.type === 'special') {
+                roomRef.child('hostSpecial').set({ skill: msg.skill, time: Date.now() });
+              }
             }
-          }
-        };
-        
-        enemyName = data.guest.name;
-        enemyChar = data.guest.char;
-        
-        startGame();
-        setupFirebaseListeners();
-      }
+          };
+          
+          enemyName = data.guest.name;
+          enemyChar = data.guest.char;
+          
+          startGame();
+          setupFirebaseListeners();
+        }
+      });
+    }).catch(err => {
+      alert('خطأ: ' + err.message);
     });
-  }).catch(err => {
-    alert('خطأ: ' + err.message);
-  });
-}
-
-function joinRoom() {
-  myRole = 'guest';
-  const code = document.getElementById('roomCodeInput').value.trim().toUpperCase();
-  if (code.length !== 6) { alert('الكود لازم يكون 6 حروف/أرقام!'); return; }
-  
-  showScreen('waiting');
-  document.querySelector('#waiting h1').textContent = 'جاري الاتصال...';
-  document.getElementById('roomCodeDisplay').textContent = code;
-  
-  roomRef = db.ref('rooms/' + code);
-  
-  roomRef.once('value').then(snapshot => {
-    const data = snapshot.val();
-    
-    if (!data) {
-      alert('الغرفة غير موجودة! تأكد من الكود');
-      showScreen('roomOptions');
-      return;
-    }
-    
-    if (data.guest) {
-      alert('الغرفة ممتلئة!');
-      showScreen('roomOptions');
-      return;
-    }
-    
-    roomRef.child('guest').set({
-      name: playerName,
-      char: playerChar,
-      joinedAt: Date.now()
-    });
-    
-    enemyName = data.host.name;
-    enemyChar = data.host.char;
-    roomCode = code;
-    
-    startGame();
-    setupFirebaseListeners();
-    
-  }).catch(err => {
-    alert('خطأ: ' + err.message);
-  });
-}
-
-function setupFirebaseListeners() {
-  if (!roomRef) return;
-  
-  const opponentKey = myRole === 'host' ? 'guestState' : 'hostState';
-  roomRef.child(opponentKey).on('value', (snapshot) => {
-    const data = snapshot.val();
-    if (data) {
-      updateEnemyFromFirebase(data);
-    }
-  });
-  
-  const specialKey = myRole === 'host' ? 'guestSpecial' : 'hostSpecial';
-  roomRef.child(specialKey).on('value', (snapshot) => {
-    const data = snapshot.val();
-    if (data && data.time && Date.now() - data.time < 1000) {
-      if (enemyFighter && myFighter) {
-        enemyFighter.specialAttack(myFighter, data.skill);
-      }
-    }
-  });
-  
-  const hpKey = myRole === 'host' ? 'hostHp' : 'guestHp';
-  roomRef.child(hpKey).on('value', (snapshot) => {
-    const hp = snapshot.val();
-    if (hp !== null && myFighter) {
-      myFighter.hp = hp;
-      if (hp <= 0) endGame(enemyName);
-    }
-  });
-}
-
-function sendState() {
-  if (!roomRef || !myFighter) return;
-  
-  const stateKey = myRole === 'host' ? 'hostState' : 'guestState';
-  roomRef.child(stateKey).set({
-    x: myFighter.x,
-    y: myFighter.y,
-    facing: myFighter.facing,
-    hp: myFighter.hp,
-    energy: myFighter.energy,
-    attacking: myFighter.attackTimer > 0
-  });
-}
-
-function updateEnemyFromFirebase(data) {
-  if (!enemyFighter) return;
-  enemyTargetX = data.x;
-  enemyTargetY = data.y;
-  enemyFighter.facing = data.facing;
-  enemyFighter.hp = data.hp;
-  enemyFighter.energy = data.energy;
-  if (data.attacking) enemyFighter.attackTimer = 10;
   }
-
-  // ===== اللعبة =====
+  
+  function joinRoom() {
+    myRole = 'guest';
+    const code = document.getElementById('roomCodeInput').value.trim().toUpperCase();
+    if (code.length !== 6) { alert('الكود لازم يكون 6 حروف/أرقام!'); return; }
+    
+    showScreen('waiting');
+    document.querySelector('#waiting h1').textContent = 'جاري الاتصال...';
+    document.getElementById('roomCodeDisplay').textContent = code;
+    
+    roomRef = db.ref('rooms/' + code);
+    
+    roomRef.once('value').then(snapshot => {
+      const data = snapshot.val();
+      
+      if (!data) {
+        alert('الغرفة غير موجودة! تأكد من الكود');
+        showScreen('roomOptions');
+        return;
+      }
+      
+      if (data.guest) {
+        alert('الغرفة ممتلئة!');
+        showScreen('roomOptions');
+        return;
+      }
+      
+      roomRef.child('guest').set({
+        name: playerName,
+        char: playerChar,
+        joinedAt: Date.now()
+      });
+      
+      enemyName = data.host.name;
+      enemyChar = data.host.char;
+      roomCode = code;
+      
+      startGame();
+      setupFirebaseListeners();
+      
+    }).catch(err => {
+      alert('خطأ: ' + err.message);
+    });
+  }
+  
+  function setupFirebaseListeners() {
+    if (!roomRef) return;
+    
+    const opponentKey = myRole === 'host' ? 'guestState' : 'hostState';
+    roomRef.child(opponentKey).on('value', (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        updateEnemyFromFirebase(data);
+      }
+    });
+    
+    const specialKey = myRole === 'host' ? 'guestSpecial' : 'hostSpecial';
+    roomRef.child(specialKey).on('value', (snapshot) => {
+      const data = snapshot.val();
+      if (data && data.time && Date.now() - data.time < 1000) {
+        if (enemyFighter && myFighter) {
+          enemyFighter.specialAttack(myFighter, data.skill);
+        }
+      }
+    });
+    
+    const hpKey = myRole === 'host' ? 'hostHp' : 'guestHp';
+    roomRef.child(hpKey).on('value', (snapshot) => {
+      const hp = snapshot.val();
+      if (hp !== null && myFighter) {
+        myFighter.hp = hp;
+        if (hp <= 0) endGame(enemyName);
+      }
+    });
+  }
+  
+  function sendState() {
+    if (!roomRef || !myFighter) return;
+    
+    const stateKey = myRole === 'host' ? 'hostState' : 'guestState';
+    roomRef.child(stateKey).set({
+      x: myFighter.x,
+      y: myFighter.y,
+      facing: myFighter.facing,
+      hp: myFighter.hp,
+      energy: myFighter.energy,
+      attacking: myFighter.attackTimer > 0
+    });
+  }
+  
+  function updateEnemyFromFirebase(data) {
+    if (!enemyFighter) return;
+    enemyTargetX = data.x;
+    enemyTargetY = data.y;
+    enemyFighter.facing = data.facing;
+    enemyFighter.hp = data.hp;
+    enemyFighter.energy = data.energy;
+    if (data.attacking) enemyFighter.attackTimer = 10;
+  }
+// ===== اللعبة =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 let GROUND = 300;
@@ -562,12 +625,21 @@ let enemyChar = 'vegeta';
 let enemyTargetX = 0, enemyTargetY = 0;
 
 function resizeCanvas() {
-  const rect = canvas.getBoundingClientRect();
-  canvas.width = rect.width;
-  canvas.height = rect.height;
+  canvas.width = 900;
+  canvas.height = 450;
   GROUND = canvas.height - 60;
+  canvas.style.backgroundImage = "url('34c84b90c4ccc7ab14a48107e60dfa9c.jpg')";
 }
-window.addEventListener('resize', resizeCanvas);
+window.addEventListener('resize', () => {
+
+  checkOrientation();
+});
+window.addEventListener('orientationchange', () => {
+  setTimeout(() => {
+    
+    checkOrientation();
+  }, 300);
+});
 
 class Fighter {
   constructor(x, color, name, facing) {
@@ -711,7 +783,9 @@ class Fighter {
   }
   function startGame() {
   showScreen('game');
+  tryLockLandscape();
   setTimeout(() => {
+    checkOrientation();
     resizeCanvas();
     let myColor, enemyColor;
     myColor = playerChar === 'goku' ? '#ff8800' : '#0066ff';
@@ -765,18 +839,9 @@ function gameLoop() {
   }
   
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#5a7a5a';
-  ctx.beginPath();
-  ctx.moveTo(0, canvas.height * 0.6);
-  ctx.lineTo(canvas.width * 0.2, canvas.height * 0.4);
-  ctx.lineTo(canvas.width * 0.4, canvas.height * 0.6);
-  ctx.lineTo(canvas.width * 0.6, canvas.height * 0.35);
-  ctx.lineTo(canvas.width * 0.8, canvas.height * 0.55);
-  ctx.lineTo(canvas.width, canvas.height * 0.4);
-  ctx.lineTo(canvas.width, GROUND);
-  ctx.lineTo(0, GROUND);
-  ctx.fill();
-  ctx.fillStyle = '#8b7355';
+  
+  // رسم خط الأرض (شبه شفاف — الخلفية تظهر من ورا)
+  ctx.fillStyle = 'rgba(139, 115, 85, 0.3)';
   ctx.fillRect(0, GROUND, canvas.width, canvas.height - GROUND);
   
   if (enemyFighter) {
@@ -834,7 +899,7 @@ function endGame(winnerName) {
 function restartGame() {
   location.reload();
         }
+
 </script>
 </body>
 </html>
-
