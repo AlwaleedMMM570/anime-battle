@@ -627,8 +627,8 @@ let enemyTargetX = 0, enemyTargetY = 0;
 
 function resizeCanvas() {
   canvas.width = window.innerWidth;
-canvas.height = 450;
-GROUND = canvas.height - 60;
+canvas.height = window.innerHeight;
+GROUND = canvas.height - 100;
   }
 window.addEventListener('resize', () => {
 
