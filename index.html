@@ -264,7 +264,12 @@
     font-weight: bold;
     display: none;
   }
-
+.hp-text {
+  font-size: 11px;
+  color: #ffcc00;
+  margin-right: 5px;
+  font-weight: normal;
+    }
   /* ===== رسالة تدوير الشاشة ===== */
   #rotateMsg {
     position: fixed;
@@ -348,12 +353,12 @@
 <div id="game" class="screen">
   <div id="hud">
     <div class="hud-player" id="p1">
-      <div class="hud-name" id="p1name">غوكو</div>
+      <div class="hud-name" id="p1name">غوكو <span class="hp-text" id="p1hpText">500/500</span></div>
       <div class="hp-bar"><div class="hp-fill" id="p1hp"></div></div>
       <div class="energy-bar"><div class="energy-fill" id="p1en"></div></div>
     </div>
     <div class="hud-player" id="p2">
-      <div class="hud-name" id="p2name">فيجيتا</div>
+      <div class="hud-name" id="p2name">فيجيتا <span class="hp-text" id="p2hpText">500/500</span></div>
       <div class="hp-bar"><div class="hp-fill" id="p2hp"></div></div>
       <div class="energy-bar"><div class="energy-fill" id="p2en"></div></div>
     </div>
@@ -652,8 +657,8 @@ class Fighter {
     this.color = color;
     this.name = name;
     this.facing = facing;
-    this.hp = 100;
-    this.maxHp = 100;
+    this.hp = 500;
+    this.maxHp = 500;
     this.energy = 0;
     this.maxEnergy = 100;
     this.onGround = true;
@@ -742,10 +747,10 @@ class Fighter {
     const dist = Math.abs(attackX - target.x);
     const vertDist = Math.abs((this.y - this.height/2) - (target.y - target.height/2));
     if (dist < 45 && vertDist < 60) {
-      target.takeDamage(8);
+      target.takeDamage(40);
       if (roomRef) {
         const hpKey = myRole === 'host' ? 'guestHp' : 'hostHp';
-        roomRef.child(hpKey).transaction(hp => (hp || 100) - 8);
+        roomRef.child(hpKey).transaction(hp => (hp || 500) - 40);
       }
     }
   }
@@ -764,7 +769,7 @@ class Fighter {
       startY: this.y - this.height/2,
       targetX: target.x,
       targetY: target.y - target.height/2,
-      damage: type === 'ult' ? 25 : 15
+      damage: type === 'ult' ? 125 : 75
     };
     if (roomRef) {
       const specialKey = myRole === 'host' ? 'hostSpecial' : 'guestSpecial';
@@ -878,12 +883,14 @@ function gameLoop() {
     }
   });
   
-  document.getElementById('p1hp').style.width = (myFighter.hp / 100 * 100) + '%';
-  document.getElementById('p1en').style.width = (myFighter.energy / 100 * 100) + '%';
-  if (enemyFighter) {
-    document.getElementById('p2hp').style.width = (enemyFighter.hp / 100 * 100) + '%';
-    document.getElementById('p2en').style.width = (enemyFighter.energy / 100 * 100) + '%';
-  }
+  document.getElementById('p1hp').style.width = (myFighter.hp / myFighter.maxHp * 100) + '%';
+document.getElementById('p1en').style.width = (myFighter.energy / 100 * 100) + '%';
+document.getElementById('p1hpText').textContent = Math.max(0, Math.round(myFighter.hp)) + '/' + myFighter.maxHp;
+if (enemyFighter) {
+  document.getElementById('p2hp').style.width = (enemyFighter.hp / enemyFighter.maxHp * 100) + '%';
+  document.getElementById('p2en').style.width = (enemyFighter.energy / 100 * 100) + '%';
+  document.getElementById('p2hpText').textContent = Math.max(0, Math.round(enemyFighter.hp)) + '/' + enemyFighter.maxHp;
+}
   
   requestAnimationFrame(gameLoop);
 }
